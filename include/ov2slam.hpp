@@ -33,8 +33,6 @@
 #include "slam_params.hpp"
 #include "ros_visualizer.hpp"
 
-#include "logger.hpp"
-
 #include "camera_calibration.hpp"
 #include "feature_extractor.hpp"
 #include "feature_tracker.hpp"
@@ -50,7 +48,7 @@ class SlamManager {
 public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
-    SlamManager(std::shared_ptr<SlamParams> pstate, std::shared_ptr<RosVisualizer> pviz);
+    SlamManager(rclcpp::Node::SharedPtr node, std::shared_ptr<SlamParams> pstate, std::shared_ptr<RosVisualizer> pviz);
 
     void run();
 
@@ -86,6 +84,8 @@ public:
     
     bool bframe_viz_ison_ = false;
     bool bkf_viz_ison_ = false;
+
+    rclcpp::Node::SharedPtr node_;
 
     std::shared_ptr<SlamParams> pslamstate_;
     std::shared_ptr<RosVisualizer> prosviz_;

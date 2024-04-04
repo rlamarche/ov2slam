@@ -30,16 +30,15 @@
 #include <mutex>
 #include <queue>
 
-#include <ros/ros.h>
-#include <ros/console.h>
+#include <rclcpp/rclcpp.hpp>
 
-#include <image_transport/image_transport.h>
-#include <image_transport/subscriber_filter.h>
+#include <image_transport/image_transport.hpp>
+#include <image_transport/subscriber_filter.hpp>
 
-#include <sensor_msgs/CameraInfo.h>
-#include <sensor_msgs/Image.h>
-#include <sensor_msgs/image_encodings.h>
-#include <sensor_msgs/Imu.h>
+#include <sensor_msgs/msg/camera_info.hpp>
+#include <sensor_msgs/msg/image.hpp>
+#include <sensor_msgs/image_encodings.hpp>
+#include <sensor_msgs/msg/imu.hpp>
 
 #include <cv_bridge/cv_bridge.h>
 #include <opencv2/core.hpp>
@@ -47,34 +46,38 @@
 #include "ov2slam.hpp"
 #include "slam_params.hpp"
 
-
-class SensorsGrabber {
+class SensorsGrabber
+{
 
 public:
-    SensorsGrabber(SlamManager *slam): pslam_(slam) {
+    SensorsGrabber(rclcpp::Node::SharedPtr node, SlamManager *slam) : node_(node), pslam_(slam)
+    {
         std::cout << "\nSensors Grabber is created...\n";
     }
 
-    void subLeftImage(const sensor_msgs::ImageConstPtr &image) {
+    void subLeftImage(const sensor_msgs::msg::Image::ConstSharedPtr &image)
+    {
         std::lock_guard<std::mutex> lock(img_mutex);
         img0_buf.push(image);
     }
 
-    void subRightImage(const sensor_msgs::ImageConstPtr &image) {
+    void subRightImage(const sensor_msgs::msg::Image::ConstSharedPtr &image)
+    {
         std::lock_guard<std::mutex> lock(img_mutex);
         img1_buf.push(image);
     }
 
-    cv::Mat getGrayImageFromMsg(const sensor_msgs::ImageConstPtr &img_msg)
+    cv::Mat getGrayImageFromMsg(const sensor_msgs::msg::Image::ConstSharedPtr &img_msg)
     {
         // Get and prepare images
         cv_bridge::CvImageConstPtr ptr;
-        try {    
-            ptr = cv_bridge::toCvCopy(img_msg, sensor_msgs::image_encodings::MONO8);
-        } 
-        catch(cv_bridge::Exception &e)
+        try
         {
-            ROS_ERROR("\n\n\ncv_bridge exeception: %s\n\n\n", e.what());
+            ptr = cv_bridge::toCvCopy(img_msg, sensor_msgs::image_encodings::MONO8);
+        }
+        catch (cv_bridge::Exception &e)
+        {
+            RCLCPP_ERROR(node_->get_logger(), "\n\n\ncv_bridge exeception: %s\n\n\n", e.what());
         }
 
         return ptr->image;
@@ -85,10 +88,10 @@ public:
     void sync_process()
     {
         std::cout << "\nStarting the measurements reader thread!\n";
-        
-        while( !pslam_->bexit_required_ )
+
+        while (!pslam_->bexit_required_)
         {
-            if( pslam_->pslamstate_->stereo_ )
+            if (pslam_->pslamstate_->stereo_)
             {
                 cv::Mat image0, image1;
 
@@ -96,16 +99,19 @@ public:
 
                 if (!img0_buf.empty() && !img1_buf.empty())
                 {
-                    double time0 = img0_buf.front()->header.stamp.toSec();
-                    double time1 = img1_buf.front()->header.stamp.toSec();
+                    rclcpp::Time t0(img0_buf.front()->header.stamp);
+                    double time0 = t0.seconds();
+
+                    rclcpp::Time t1(img1_buf.front()->header.stamp);
+                    double time1 = t1.seconds();
 
                     // sync tolerance
-                    if(time0 < time1 - 0.015)
+                    if (time0 < time1 - 0.015)
                     {
                         img0_buf.pop();
                         std::cout << "\n Throw img0 -- Sync error : " << (time0 - time1) << "\n";
                     }
-                    else if(time0 > time1 + 0.015)
+                    else if (time0 > time1 + 0.015)
                     {
                         img1_buf.pop();
                         std::cout << "\n Throw img1 -- Sync error : " << (time0 - time1) << "\n";
@@ -117,25 +123,30 @@ public:
                         img0_buf.pop();
                         img1_buf.pop();
 
-                        if( !image0.empty() && !image1.empty() ) {
+                        if (!image0.empty() && !image1.empty())
+                        {
                             pslam_->addNewStereoImages(time0, image0, image1);
                         }
                     }
                 }
-            } 
-            else if( pslam_->pslamstate_->mono_ ) 
+            }
+            else if (pslam_->pslamstate_->mono_)
             {
                 cv::Mat image0;
 
                 std::lock_guard<std::mutex> lock(img_mutex);
 
-                if ( !img0_buf.empty() )
+                if (!img0_buf.empty())
                 {
-                    double time = img0_buf.front()->header.stamp.toSec();
+                    rclcpp::Time t(img0_buf.front()->header.stamp);
+                    double time = t.seconds();
+
+                    // double time = img0_buf.front()->header.stamp.toSec();
                     image0 = getGrayImageFromMsg(img0_buf.front());
                     img0_buf.pop();
 
-                    if( !image0.empty()) {
+                    if (!image0.empty())
+                    {
                         pslam_->addNewMonoImage(time, image0);
                     }
                 }
@@ -148,28 +159,29 @@ public:
         std::cout << "\n Bag reader SyncProcess thread is terminating!\n";
     }
 
-    std::queue<sensor_msgs::ImageConstPtr> img0_buf;
-    std::queue<sensor_msgs::ImageConstPtr> img1_buf;
+    rclcpp::Node::SharedPtr node_;
+
+    std::queue<sensor_msgs::msg::Image::ConstSharedPtr> img0_buf;
+    std::queue<sensor_msgs::msg::Image::ConstSharedPtr> img1_buf;
     std::mutex img_mutex;
-    
+
     SlamManager *pslam_;
 };
 
-
-int main(int argc, char** argv)
+int main(int argc, char **argv)
 {
     // Init the node
-    ros::init(argc, argv, "ov2slam_node");
+    rclcpp::init(argc, argv);
 
-    if(argc < 2)
+    if (argc < 2)
     {
-       std::cout << "\nUsage: rosrun ov2slam ov2slam_node parameters_files/params.yaml\n";
-       return 1;
+        std::cout << "\nUsage: rosrun ov2slam ov2slam_node parameters_files/params.yaml\n";
+        return 1;
     }
 
     std::cout << "\nLaunching OV²SLAM...\n\n";
 
-    ros::NodeHandle nh("~");
+    auto node = rclcpp::Node::make_shared("ov2slam_node");
 
     // Load the parameters
     std::string parameters_file = argv[1];
@@ -177,44 +189,48 @@ int main(int argc, char** argv)
     std::cout << "\nLoading parameters file : " << parameters_file << "...\n";
 
     const cv::FileStorage fsSettings(parameters_file.c_str(), cv::FileStorage::READ);
-    if(!fsSettings.isOpened()) {
-       std::cout << "Failed to open settings file...";
-       return 1;
-    } else {
+    if (!fsSettings.isOpened())
+    {
+        std::cout << "Failed to open settings file...";
+        return 1;
+    }
+    else
+    {
         std::cout << "\nParameters file loaded...\n";
     }
 
     std::shared_ptr<SlamParams> pparams;
-    pparams.reset( new SlamParams(fsSettings) );
+    pparams.reset(new SlamParams(fsSettings));
 
     // Create the ROS Visualizer
     std::shared_ptr<RosVisualizer> prosviz;
-    prosviz.reset( new RosVisualizer(nh) );
+    prosviz.reset(new RosVisualizer(node));
 
     // Setting up the SLAM Manager
-    SlamManager slam(pparams, prosviz);
+    SlamManager slam(node, pparams, prosviz);
 
     // Start the SLAM thread
     std::thread slamthread(&SlamManager::run, &slam);
 
     // Create the Bag file reader & callback functions
-    SensorsGrabber sb(&slam);
+    SensorsGrabber sb(node, &slam);
 
     // Create callbacks according to the topics set in the parameters file
-    ros::Subscriber subleft = nh.subscribe(fsSettings["Camera.topic_left"], 2, &SensorsGrabber::subLeftImage, &sb);
-    ros::Subscriber subright = nh.subscribe(fsSettings["Camera.topic_right"], 2, &SensorsGrabber::subRightImage, &sb);
+    auto subleft = node->create_subscription<sensor_msgs::msg::Image>(fsSettings["Camera.topic_left"], 2, std::bind(&SensorsGrabber::subLeftImage, &sb, std::placeholders::_1));
+    auto subright = node->create_subscription<sensor_msgs::msg::Image>(fsSettings["Camera.topic_right"], 2, std::bind(&SensorsGrabber::subRightImage, &sb, std::placeholders::_1));
 
     // Start a thread for providing new measurements to the SLAM
     std::thread sync_thread(&SensorsGrabber::sync_process, &sb);
 
     // ROS Spin
-    ros::spin();
+    rclcpp::spin(node);
 
     // Request Slam Manager thread to exit
     slam.bexit_required_ = true;
 
     // Waiting end of SLAM Manager
-    while( slam.bis_on_ ) {
+    while (slam.bis_on_)
+    {
         std::chrono::seconds dura(1);
         std::this_thread::sleep_for(dura);
     }

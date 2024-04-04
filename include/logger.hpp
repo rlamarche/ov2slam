@@ -26,6 +26,7 @@
 #pragma once
 
 #include <iostream>
+#include <fstream>
 
 #include <Eigen/Core>
 #include <Eigen/Geometry>

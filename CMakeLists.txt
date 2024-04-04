@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 2.8.3)
+cmake_minimum_required(VERSION 3.5)
 project(ov2slam)
 
 if(POLICY CMP0022)
@@ -15,6 +15,10 @@ if( ${CMAKE_VERSION} VERSION_LESS "3.8.2" )
     set(CMAKE_CXX_STANDARD 14)
 else()
     set(CMAKE_CXX_STANDARD 17)
+endif()
+
+if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
 set(CMAKE_BUILD_TYPE "Release")
@@ -38,20 +42,25 @@ Set it to OFF is OpenCV was not compiled with the opencv_contrib modules)\n")
     add_definitions(-DOPENCV_CONTRIB)
 endif()
 
+find_package(ament_cmake REQUIRED)
 
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
-find_package(catkin REQUIRED
-    COMPONENTS
-        roscpp
-        std_msgs
-        sensor_msgs
-        cv_bridge
-        image_transport
-        tf
-        pcl_ros
-)
+
+find_package(rclcpp REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
+find_package(visualization_msgs REQUIRED)
+find_package(image_transport REQUIRED)
+find_package(cv_bridge REQUIRED)
+find_package(tf2 REQUIRED)
+find_package(tf2_ros REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
+find_package(pcl_ros REQUIRED)
+find_package(pcl_conversions REQUIRED)
+
 
 # iBOW-LCD
 #
@@ -70,7 +79,7 @@ endif ( )
 ## System dependencies are found with CMake's conventions
 
 # OpenCV
-find_package(OpenCV REQUIRED)
+find_package(OpenCV 4.9.0 REQUIRED)
 
 if(OpenCV_VERSION_MAJOR LESS 3)
   message( FATAL_ERROR "OpenCV 3 or 4 is required!  Current version : ${OpenCV_VERSION}" )
@@ -117,8 +126,6 @@ if (Sophus_FOUND)
   message(STATUS "Found Sophus lib : ${Sophus_VERSION} - ${Sophus_DIR}")
 endif (Sophus_FOUND)
 
-catkin_package()
-
 ###########
 ## Build ##
 ###########
@@ -146,28 +153,42 @@ add_library(${PROJECT_NAME}
   src/loop_closer.cpp
 )
 
-
 # Add mandatory dependencies
 target_include_directories(${PROJECT_NAME}
   PUBLIC
     ${PROJECT_SOURCE_DIR}/include
-    ${catkin_INCLUDE_DIRS}
     ${PROJECT_SOURCE_DIR}/include/ceres_parametrization
+    ${OpenCV_INCLUDE_DIRS}
 )
 
 target_link_libraries(${PROJECT_NAME}
     PUBLIC
-      ${catkin_LIBRARIES}
+      "${rclcpp_TARGETS}"
+      "${sensor_msgs_TARGETS}"
+      "${std_msgs_TARGETS}"
+      "${nav_msgs_TARGETS}"
+      "${visualization_msgs_TARGETS}"
+      "${image_transport_TARGETS}"
+      "${cv_bridge_TARGETS}"
+      "${tf2_TARGETS}"
+      "${tf2_ros_TARGETS}"
+      "${tf2_geometry_msgs_TARGETS}"
+      "${pcl_ros_TARGETS}"
+      "${pcl_conversions_TARGETS}"
       Eigen3::Eigen
       Sophus::Sophus
-    PRIVATE
       ${OpenCV_LIBS}
+    PRIVATE
       Ceres::ceres
 )
 
 
 # Add optional dependencies if they are found
 if (WITH_IBOW_LCD)
+  include_directories(
+    ${PROJECT_SOURCE_DIR}/Thirdparty/obindex2/lib/include/
+    ${PROJECT_SOURCE_DIR}/Thirdparty/ibow_lcd/include/
+  )
   target_include_directories(
     ${PROJECT_NAME}
     PUBLIC
@@ -190,6 +211,24 @@ if (opengv_FOUND)
   )
 endif (opengv_FOUND)
 
+
+set(dependencies
+  "rclcpp"
+  "std_msgs"
+  "sensor_msgs"
+  "nav_msgs"
+  "visualization_msgs"
+  "image_transport"
+  "cv_bridge"
+  "tf2"
+  "tf2_ros"
+  "tf2_geometry_msgs"
+  "pcl_ros"
+  "pcl_conversions"
+)
+
+
+
 ## Add cmake target dependencies of the library
 ## as an example, code may need to be generated before libraries
 ## either from message generation or dynamic reconfigure
@@ -207,3 +246,11 @@ target_link_libraries(
     PRIVATE
       ${PROJECT_NAME}
 )
+target_include_directories(${PROJECT_NAME}_node
+  PUBLIC
+    ${PROJECT_SOURCE_DIR}/include
+    ${PROJECT_SOURCE_DIR}/include/ceres_parametrization
+    ${OpenCV_INCLUDE_DIRS}
+)
+
+ament_package()
